@@ -27,6 +27,20 @@
     $defaultRefundedAt = \Carbon\CarbonImmutable::now($timezone)
         ->format('Y-m-d\TH:i');
 
+    $defaultFolioPostedAt = \Carbon\CarbonImmutable::now($timezone)
+        ->format('Y-m-d\TH:i');
+
+    $activeFolioItems = $reservation->folioItems
+        ->where('status', 'active');
+
+    $extraChargesTotal = (float) $activeFolioItems
+        ->sum('total_amount');
+
+    $baseReservationTotal =
+        (float) $reservation->subtotal
+        + (float) $reservation->tax_amount
+        + (float) $reservation->fee_amount;
+
 
     /*
     |--------------------------------------------------------------------------
@@ -187,7 +201,96 @@
             </a>
 
 
-            @if(!in_array($reservation->status, ['checked_out', 'cancelled'], true))
+            @if($reservation->status === 'checked_in' && $reservationRoom?->room)
+
+                <a
+                    href="{{ route('pms.room-moves.create', $reservation) }}"
+                    class="h-[34px] px-4 inline-flex items-center justify-center border border-[#cfe1fa] bg-[#f7faff] text-[#1677ff] rounded-[3px] text-[10px]"
+                >
+                    Room Move
+                </a>
+
+            @endif
+
+
+            @if(in_array($reservation->status, ['pending', 'confirmed'], true))
+
+                <details class="relative">
+
+                    <summary
+                        class="list-none cursor-pointer h-[34px] px-4 inline-flex items-center justify-center border border-[#efcaca] bg-white text-[#b64646] rounded-[3px] text-[10px]"
+                    >
+                        No-show
+                    </summary>
+
+                    <div class="absolute right-0 z-30 mt-2 w-[320px] bg-white border border-[#e2e6ea] shadow-lg rounded-[3px] p-4">
+
+                        <div class="text-[11px] font-medium text-[#36414c]">
+                            Mark as No-show
+                        </div>
+
+                        <div class="text-[9px] text-[#929ba4] mt-1">
+                            Đánh dấu khách không đến nhận phòng
+                        </div>
+
+                        <form
+                            method="POST"
+                            action="{{ route('pms.reservations.no-show', $reservation) }}"
+                            class="mt-4 space-y-3"
+                            onsubmit="return confirm('Mark reservation {{ $reservation->code }} as No-show?')"
+                        >
+                            @csrf
+
+                            <div>
+
+                                <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                    Reason
+                                </label>
+
+                                <div class="text-[8px] text-[#a0a8b0] mb-2">
+                                    Lý do hoặc ghi chú khi khách không đến
+                                </div>
+
+                                <input
+                                    type="text"
+                                    name="reason"
+                                    maxlength="255"
+                                    value="{{ old('reason') }}"
+                                    placeholder="Example: Guest did not arrive"
+                                    class="w-full h-[36px] px-3 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] outline-none focus:border-[#1677ff]"
+                                >
+
+                            </div>
+
+                            <div class="p-3 bg-[#fff7e8] border border-[#f0dfba] rounded-[3px]">
+
+                                <div class="text-[9px] text-[#9a6c28] leading-5">
+                                    Inventory sẽ được trả lại, Physical Room sẽ được bỏ gán và Availability sẽ được đồng bộ lại Channex. Payment hiện tại không tự động thay đổi.
+                                </div>
+
+                            </div>
+
+                            <button
+                                type="submit"
+                                class="w-full h-[36px] bg-[#b64646] text-white rounded-[3px] text-[10px] font-medium"
+                            >
+                                Confirm No-show
+                            </button>
+
+                            <div class="text-[8px] text-[#929ba4] text-center">
+                                Xác nhận khách không đến
+                            </div>
+
+                        </form>
+
+                    </div>
+
+                </details>
+
+            @endif
+
+
+            @if(!in_array($reservation->status, ['checked_out', 'cancelled', 'no_show'], true))
 
                 <a
                     href="{{ route('pms.reservations.edit', $reservation) }}"
@@ -580,83 +683,381 @@
 
             <div class="bg-white border border-[#e2e6ea] rounded-[3px] overflow-hidden">
 
-                <div class="px-5 py-4 border-b border-[#edf0f2]">
+                <div class="px-5 py-4 border-b border-[#edf0f2] flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 
-                    <div class="text-[12px] font-medium text-[#36414c]">
-                        Folio
+                    <div>
+
+                        <div class="text-[12px] font-medium text-[#36414c]">
+                            Folio
+                        </div>
+
+                        <div class="text-[9px] text-[#929ba4] mt-1">
+                            Chi tiết tiền phòng, thuế, phí và các chi phí phát sinh của đặt phòng
+                        </div>
+
                     </div>
 
-                    <div class="text-[9px] text-[#929ba4] mt-1">
-                        Chi tiết các khoản phí của đặt phòng
+                    @if(!in_array($reservation->status, ['cancelled', 'no_show'], true))
+
+                        <details class="sm:text-right">
+
+                            <summary class="cursor-pointer list-none inline-flex h-[32px] px-3 items-center justify-center bg-[#1677ff] text-white rounded-[3px] text-[9px]">
+                                + Add Charge
+                            </summary>
+
+                            <div class="mt-3 sm:w-[430px] sm:text-left p-4 bg-[#f8fbff] border border-[#d9e8ff] rounded-[3px]">
+
+                                <div class="mb-4">
+
+                                    <div class="text-[11px] font-medium text-[#36414c]">
+                                        Add Extra Charge
+                                    </div>
+
+                                    <div class="text-[9px] text-[#929ba4] mt-1">
+                                        Thêm chi phí phát sinh vào hóa đơn của khách
+                                    </div>
+
+                                </div>
+
+                                <form method="POST" action="{{ route('pms.folio-items.store', $reservation) }}" class="space-y-3">
+                                    @csrf
+
+                                    <div>
+                                        <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                            Category *
+                                        </label>
+                                        <div class="text-[8px] text-[#a0a8b0] mb-1.5">
+                                            Loại chi phí phát sinh
+                                        </div>
+
+                                        <select name="category" required class="w-full h-[36px] px-3 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] outline-none focus:border-[#1677ff]">
+                                            <option value="">Select Category / Chọn loại chi phí</option>
+                                            <option value="minibar" @selected(old('category') === 'minibar')>Minibar — Đồ ăn, thức uống minibar</option>
+                                            <option value="laundry" @selected(old('category') === 'laundry')>Laundry — Giặt ủi</option>
+                                            <option value="airport_transfer" @selected(old('category') === 'airport_transfer')>Airport Transfer — Đưa đón sân bay</option>
+                                            <option value="extra_bed" @selected(old('category') === 'extra_bed')>Extra Bed — Giường phụ</option>
+                                            <option value="late_checkout" @selected(old('category') === 'late_checkout')>Late Checkout — Trả phòng trễ</option>
+                                            <option value="damage_fee" @selected(old('category') === 'damage_fee')>Damage Fee — Phí hư hỏng</option>
+                                            <option value="other" @selected(old('category') === 'other')>Other — Chi phí khác</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                            Description *
+                                        </label>
+                                        <div class="text-[8px] text-[#a0a8b0] mb-1.5">
+                                            Mô tả khoản phí, ví dụ: Coca Cola, Laundry Service...
+                                        </div>
+                                        <input type="text" name="description" value="{{ old('description') }}" required placeholder="Example: Coca Cola 330ml" class="w-full h-[36px] px-3 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] outline-none focus:border-[#1677ff]">
+                                    </div>
+
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                                        <div>
+                                            <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                                Quantity *
+                                            </label>
+                                            <div class="text-[8px] text-[#a0a8b0] mb-1.5">
+                                                Số lượng
+                                            </div>
+                                            <input type="number" name="quantity" min="1" max="100" value="{{ old('quantity', 1) }}" required class="w-full h-[36px] px-3 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] outline-none focus:border-[#1677ff]">
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                                Unit Price *
+                                            </label>
+                                            <div class="text-[8px] text-[#a0a8b0] mb-1.5">
+                                                Đơn giá (VND)
+                                            </div>
+                                            <input type="number" name="unit_price" min="0" step="1" value="{{ old('unit_price') }}" required placeholder="0" class="w-full h-[36px] px-3 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] outline-none focus:border-[#1677ff]">
+                                        </div>
+
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                            Posted At
+                                        </label>
+                                        <div class="text-[8px] text-[#a0a8b0] mb-1.5">
+                                            Thời điểm ghi nhận chi phí
+                                        </div>
+                                        <input type="datetime-local" name="posted_at" value="{{ old('posted_at', $defaultFolioPostedAt) }}" class="w-full h-[36px] px-3 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] outline-none focus:border-[#1677ff]">
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-[9px] uppercase text-[#7f8993] mb-1.5">
+                                            Notes
+                                        </label>
+                                        <div class="text-[8px] text-[#a0a8b0] mb-1.5">
+                                            Ghi chú nội bộ, không bắt buộc
+                                        </div>
+                                        <textarea name="notes" rows="2" class="w-full px-3 py-2 border border-[#dce1e6] bg-white rounded-[3px] text-[10px] resize-none outline-none focus:border-[#1677ff]">{{ old('notes') }}</textarea>
+                                    </div>
+
+                                    <button type="submit" class="w-full h-[36px] bg-[#1677ff] text-white rounded-[3px] text-[10px] font-medium">
+                                        Add Charge / Thêm chi phí
+                                    </button>
+
+                                </form>
+
+                            </div>
+
+                        </details>
+
+                    @endif
+
+                </div>
+
+
+                {{-- BASE CHARGES --}}
+                <div class="p-5 border-b border-[#edf0f2]">
+
+                    <div class="flex items-center justify-between mb-4">
+
+                        <div>
+                            <div class="text-[10px] font-medium text-[#36414c]">
+                                Base Charges
+                            </div>
+                            <div class="text-[8px] text-[#a0a8b0] mt-0.5">
+                                Các khoản phí cơ bản của đặt phòng
+                            </div>
+                        </div>
+
+                        <div class="text-[11px] font-medium text-[#36414c]">
+                            {{ number_format($baseReservationTotal, 0, ',', '.') }} ₫
+                        </div>
+
+                    </div>
+
+                    <div class="space-y-3">
+
+                        <div class="flex items-start justify-between gap-4">
+
+                            <div>
+                                <div class="text-[10px] text-[#59636e]">
+                                    Room Charges
+                                </div>
+                                <div class="text-[8px] text-[#a0a8b0] mt-0.5">
+                                    Tiền phòng
+                                </div>
+
+                                @if($reservationRoom)
+                                    <div class="text-[9px] text-[#929ba4] mt-1">
+                                        {{ $nights }} night(s) × {{ number_format((float) $reservationRoom->nightly_rate, 0, ',', '.') }} ₫
+                                    </div>
+                                @endif
+                            </div>
+
+                            <div class="text-[10px] font-medium text-[#36414c]">
+                                {{ number_format((float) $reservation->subtotal, 0, ',', '.') }} ₫
+                            </div>
+
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4 pt-3 border-t border-[#edf0f2]">
+                            <div>
+                                <div class="text-[10px] text-[#59636e]">Tax</div>
+                                <div class="text-[8px] text-[#a0a8b0] mt-0.5">Thuế</div>
+                            </div>
+                            <div class="text-[10px] text-[#36414c]">
+                                {{ number_format((float) $reservation->tax_amount, 0, ',', '.') }} ₫
+                            </div>
+                        </div>
+
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <div class="text-[10px] text-[#59636e]">Fee</div>
+                                <div class="text-[8px] text-[#a0a8b0] mt-0.5">Phí dịch vụ hoặc phụ phí cơ bản</div>
+                            </div>
+                            <div class="text-[10px] text-[#36414c]">
+                                {{ number_format((float) $reservation->fee_amount, 0, ',', '.') }} ₫
+                            </div>
+                        </div>
+
                     </div>
 
                 </div>
 
 
-                <div class="p-5 space-y-3">
+                {{-- EXTRA CHARGES --}}
+                <div>
 
-                    <div class="flex justify-between">
+                    <div class="px-5 py-4 bg-[#fafbfc] border-b border-[#edf0f2] flex items-center justify-between gap-4">
 
                         <div>
-
                             <div class="text-[10px] font-medium text-[#36414c]">
-                                Room Charges
+                                Extra Charges
                             </div>
+                            <div class="text-[8px] text-[#a0a8b0] mt-0.5">
+                                Các chi phí phát sinh trong thời gian lưu trú
+                            </div>
+                        </div>
 
-                            @if($reservationRoom)
+                        <div class="text-right">
+                            <div class="text-[11px] font-medium text-[#d17e15]">
+                                {{ number_format($extraChargesTotal, 0, ',', '.') }} ₫
+                            </div>
+                            <div class="text-[8px] text-[#a0a8b0] mt-0.5">
+                                {{ $activeFolioItems->count() }} active item(s)
+                            </div>
+                        </div>
 
-                                <div class="text-[9px] text-[#929ba4] mt-1">
-                                    {{ $nights }}
-                                    ×
-                                    {{ number_format((float) $reservationRoom->nightly_rate, 0, ',', '.') }} ₫
+                    </div>
+
+                    @if($reservation->folioItems->isEmpty())
+
+                        <div class="py-10 px-5 text-center">
+                            <div class="text-[10px] text-[#7c8791]">
+                                No extra charges recorded.
+                            </div>
+                            <div class="text-[9px] text-[#a0a8b0] mt-1">
+                                Chưa có chi phí phát sinh nào được ghi nhận.
+                            </div>
+                        </div>
+
+                    @else
+
+                        <div class="divide-y divide-[#edf0f2]">
+
+                            @foreach($reservation->folioItems as $item)
+
+                                @php
+                                    $categoryLabel = match ($item->category) {
+                                        'minibar' => 'Minibar',
+                                        'laundry' => 'Laundry',
+                                        'airport_transfer' => 'Airport Transfer',
+                                        'extra_bed' => 'Extra Bed',
+                                        'late_checkout' => 'Late Checkout',
+                                        'damage_fee' => 'Damage Fee',
+                                        default => 'Other',
+                                    };
+
+                                    $categoryVi = match ($item->category) {
+                                        'minibar' => 'Minibar',
+                                        'laundry' => 'Giặt ủi',
+                                        'airport_transfer' => 'Đưa đón sân bay',
+                                        'extra_bed' => 'Giường phụ',
+                                        'late_checkout' => 'Trả phòng trễ',
+                                        'damage_fee' => 'Phí hư hỏng',
+                                        default => 'Chi phí khác',
+                                    };
+                                @endphp
+
+                                <div class="p-5 {{ $item->status === 'voided' ? 'bg-[#fafafa]' : '' }}">
+
+                                    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+
+                                        <div class="min-w-0">
+
+                                            <div class="flex flex-wrap items-center gap-2">
+
+                                                <span class="text-[10px] font-medium {{ $item->status === 'voided' ? 'text-[#929ba4] line-through' : 'text-[#1677ff]' }}">
+                                                    {{ $item->code }}
+                                                </span>
+
+                                                @if($item->status === 'active')
+                                                    <span class="px-2 py-1 bg-[#edf9f1] text-[#31845b] rounded-[3px] text-[8px]">
+                                                        Active / Đang tính phí
+                                                    </span>
+                                                @else
+                                                    <span class="px-2 py-1 bg-[#fff0f0] text-[#b64646] rounded-[3px] text-[8px]">
+                                                        Voided / Đã hủy
+                                                    </span>
+                                                @endif
+
+                                            </div>
+
+                                            <div class="text-[11px] font-medium {{ $item->status === 'voided' ? 'text-[#929ba4] line-through' : 'text-[#36414c]' }} mt-2">
+                                                {{ $item->description }}
+                                            </div>
+
+                                            <div class="text-[9px] text-[#929ba4] mt-1">
+                                                {{ $categoryLabel }} · {{ $categoryVi }}
+                                            </div>
+
+                                            <div class="text-[9px] text-[#929ba4] mt-1">
+                                                {{ $item->quantity }} × {{ number_format((float) $item->unit_price, 0, ',', '.') }} ₫
+                                                @if($item->posted_at)
+                                                    · {{ $item->posted_at->format('d/m/Y H:i') }}
+                                                @endif
+                                            </div>
+
+                                            @if($item->notes)
+                                                <div class="text-[9px] text-[#7c8791] mt-2">
+                                                    Note / Ghi chú: {{ $item->notes }}
+                                                </div>
+                                            @endif
+
+                                        </div>
+
+                                        <div class="sm:text-right shrink-0">
+
+                                            <div class="text-[13px] font-medium {{ $item->status === 'voided' ? 'text-[#929ba4] line-through' : 'text-[#36414c]' }}">
+                                                {{ number_format((float) $item->total_amount, 0, ',', '.') }} ₫
+                                            </div>
+
+                                            @if($item->status === 'active')
+                                                <form method="POST" action="{{ route('pms.folio-items.void', $item) }}" class="mt-3" onsubmit="return confirm('Void charge {{ $item->code }}? / Hủy khoản phí {{ $item->code }}?')">
+                                                    @csrf
+                                                    @method('PATCH')
+
+                                                    <button type="submit" class="h-[28px] px-3 border border-[#efcaca] bg-white text-[#b64646] rounded-[3px] text-[9px]">
+                                                        Void / Hủy phí
+                                                    </button>
+                                                </form>
+                                            @endif
+
+                                        </div>
+
+                                    </div>
+
                                 </div>
 
-                            @endif
+                            @endforeach
 
                         </div>
 
-                        <div class="text-[10px] font-medium text-[#36414c]">
-                            {{ number_format((float) $reservation->subtotal, 0, ',', '.') }} ₫
+                    @endif
+
+                </div>
+
+
+                {{-- FOLIO TOTAL --}}
+                <div class="p-5 bg-[#fafcff] border-t border-[#dce7f5]">
+
+                    <div class="space-y-3">
+
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <div class="text-[10px] text-[#59636e]">Base Total</div>
+                                <div class="text-[8px] text-[#a0a8b0] mt-0.5">Tổng tiền phòng + thuế + phí cơ bản</div>
+                            </div>
+                            <div class="text-[10px] text-[#36414c]">
+                                {{ number_format($baseReservationTotal, 0, ',', '.') }} ₫
+                            </div>
                         </div>
 
-                    </div>
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <div class="text-[10px] text-[#59636e]">Extra Charges</div>
+                                <div class="text-[8px] text-[#a0a8b0] mt-0.5">Tổng chi phí phát sinh đang có hiệu lực</div>
+                            </div>
+                            <div class="text-[10px] text-[#d17e15]">
+                                +{{ number_format($extraChargesTotal, 0, ',', '.') }} ₫
+                            </div>
+                        </div>
 
-
-                    <div class="flex justify-between pt-3 border-t border-[#edf0f2]">
-
-                        <span class="text-[10px] text-[#59636e]">
-                            Tax
-                        </span>
-
-                        <span class="text-[10px]">
-                            {{ number_format((float) $reservation->tax_amount, 0, ',', '.') }} ₫
-                        </span>
-
-                    </div>
-
-
-                    <div class="flex justify-between">
-
-                        <span class="text-[10px] text-[#59636e]">
-                            Fee
-                        </span>
-
-                        <span class="text-[10px]">
-                            {{ number_format((float) $reservation->fee_amount, 0, ',', '.') }} ₫
-                        </span>
-
-                    </div>
-
-
-                    <div class="flex justify-between pt-3 border-t border-[#edf0f2]">
-
-                        <span class="text-[11px] font-medium text-[#36414c]">
-                            Total
-                        </span>
-
-                        <span class="text-[16px] font-medium text-[#303942]">
-                            {{ number_format((float) $reservation->total_amount, 0, ',', '.') }} ₫
-                        </span>
+                        <div class="pt-3 border-t border-[#dce7f5] flex items-end justify-between gap-4">
+                            <div>
+                                <div class="text-[12px] font-medium text-[#303942]">Grand Total</div>
+                                <div class="text-[8px] text-[#a0a8b0] mt-0.5">Tổng giá trị hiện tại của đặt phòng</div>
+                            </div>
+                            <div class="text-[17px] font-semibold text-[#303942]">
+                                {{ number_format((float) $reservation->total_amount, 0, ',', '.') }} ₫
+                            </div>
+                        </div>
 
                     </div>
 
@@ -1239,6 +1640,44 @@
                         </div>
 
                     </div>
+
+
+                    @if($reservation->status === 'no_show')
+
+                        <div>
+
+                            <div class="text-[9px] uppercase text-[#929ba4]">
+                                No-show At
+                            </div>
+
+                            <div class="text-[10px] mt-1">
+                                {{ $reservation->no_show_at ? $reservation->no_show_at->format('d/m/Y H:i') : '-' }}
+                            </div>
+
+                            <div class="text-[8px] text-[#a0a8b0] mt-0.5">
+                                Thời điểm xác nhận khách không đến
+                            </div>
+
+                        </div>
+
+
+                        <div>
+
+                            <div class="text-[9px] uppercase text-[#929ba4]">
+                                No-show Reason
+                            </div>
+
+                            <div class="text-[10px] mt-1">
+                                {{ $reservation->no_show_reason ?: '-' }}
+                            </div>
+
+                            <div class="text-[8px] text-[#a0a8b0] mt-0.5">
+                                Lý do khách không nhận phòng
+                            </div>
+
+                        </div>
+
+                    @endif
 
                 </div>
 

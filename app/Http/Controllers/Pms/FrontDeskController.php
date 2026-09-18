@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Pms;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\Reservation;
+use App\Models\ReservationRoom;
 use App\Models\Room;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +25,8 @@ class FrontDeskController extends Controller
         | Property
         |--------------------------------------------------------------------------
         */
-        $property = Property::firstOrFail();
+        $property =
+            Property::firstOrFail();
 
 
         /*
@@ -41,10 +43,6 @@ class FrontDeskController extends Controller
         |--------------------------------------------------------------------------
         | Today
         |--------------------------------------------------------------------------
-        |
-        | Quan trọng:
-        | Luôn dùng timezone của Property.
-        |
         */
         $today =
             CarbonImmutable::now(
@@ -57,10 +55,7 @@ class FrontDeskController extends Controller
         | Today's Arrivals
         |--------------------------------------------------------------------------
         |
-        | Booking:
-        |
-        | - check-in hôm nay
-        | - pending / confirmed
+        | Khách dự kiến nhận phòng hôm nay.
         |
         */
         $arrivals =
@@ -127,12 +122,7 @@ class FrontDeskController extends Controller
         | Today's Departures
         |--------------------------------------------------------------------------
         |
-        | Booking có check-out hôm nay.
-        |
-        | Bao gồm:
-        |
-        | checked_in
-        | checked_out
+        | Khách dự kiến trả phòng hôm nay.
         |
         */
         $departures =
@@ -172,7 +162,7 @@ class FrontDeskController extends Controller
         | Unassigned Arrivals
         |--------------------------------------------------------------------------
         |
-        | Arrival hôm nay nhưng chưa assign Physical Room.
+        | Khách đến hôm nay nhưng chưa gán phòng vật lý.
         |
         */
         $unassignedArrivals =
@@ -196,6 +186,34 @@ class FrontDeskController extends Controller
 
         /*
         |--------------------------------------------------------------------------
+        | Outstanding In-House
+        |--------------------------------------------------------------------------
+        |
+        | Số booking đang ở khách sạn nhưng còn công nợ.
+        |
+        */
+        $outstandingInHouse =
+            $inHouse
+                ->filter(
+                    function ($reservation) {
+
+                        $balance =
+                            max(
+                                0,
+                                (float) $reservation->total_amount
+                                -
+                                (float) $reservation->paid_amount
+                            );
+
+
+                        return $balance > 0;
+                    }
+                )
+                ->count();
+
+
+        /*
+        |--------------------------------------------------------------------------
         | View
         |--------------------------------------------------------------------------
         */
@@ -207,7 +225,8 @@ class FrontDeskController extends Controller
                 'arrivals',
                 'inHouse',
                 'departures',
-                'unassignedArrivals'
+                'unassignedArrivals',
+                'outstandingInHouse'
             )
         );
     }
@@ -234,9 +253,6 @@ class FrontDeskController extends Controller
         |--------------------------------------------------------------------------
         | Security
         |--------------------------------------------------------------------------
-        |
-        | Booking phải thuộc Property hiện tại.
-        |
         */
         abort_if(
             (int) $reservation->property_id
@@ -248,7 +264,7 @@ class FrontDeskController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Valid Reservation Status
+        | Reservation Status
         |--------------------------------------------------------------------------
         */
         if (
@@ -286,14 +302,14 @@ class FrontDeskController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Missing Room Information
+        | Stay Information Required
         |--------------------------------------------------------------------------
         */
         if (!$reservationRoom) {
 
             return back()->with(
                 'error',
-                'Reservation does not have room information.'
+                'Reservation does not have stay information.'
             );
         }
 
@@ -303,9 +319,7 @@ class FrontDeskController extends Controller
         | Physical Room Required
         |--------------------------------------------------------------------------
         */
-        if (
-            !$reservationRoom->room_id
-        ) {
+        if (!$reservationRoom->room_id) {
 
             return redirect()
                 ->route(
@@ -321,7 +335,7 @@ class FrontDeskController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Property Timezone
+        | Timezone
         |--------------------------------------------------------------------------
         */
         $timezone =
@@ -331,16 +345,8 @@ class FrontDeskController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Current Property Date
+        | Dates
         |--------------------------------------------------------------------------
-        |
-        | Ví dụ:
-        |
-        | Property = Asia/Ho_Chi_Minh
-        |
-        | Today:
-        | 2026-09-16
-        |
         */
         $today =
             CarbonImmutable::now(
@@ -348,18 +354,6 @@ class FrontDeskController extends Controller
             )->startOfDay();
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Planned Check-in
-        |--------------------------------------------------------------------------
-        |
-        | Quan trọng:
-        |
-        | Parse cùng timezone với $today.
-        |
-        | Đây là phần sửa lỗi bạn vừa gặp.
-        |
-        */
         $plannedCheckIn =
             CarbonImmutable::parse(
                 $reservationRoom->check_in,
@@ -367,11 +361,6 @@ class FrontDeskController extends Controller
             )->startOfDay();
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Planned Check-out
-        |--------------------------------------------------------------------------
-        */
         $plannedCheckOut =
             CarbonImmutable::parse(
                 $reservationRoom->check_out,
@@ -381,19 +370,8 @@ class FrontDeskController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Too Early
+        | Early Check-In Validation
         |--------------------------------------------------------------------------
-        |
-        | Ví dụ:
-        |
-        | Today:
-        | 16/09
-        |
-        | Check-in:
-        | 17/09
-        |
-        | → không được check-in.
-        |
         */
         if (
             $today->lt(
@@ -414,10 +392,6 @@ class FrontDeskController extends Controller
         |--------------------------------------------------------------------------
         | Stay Already Ended
         |--------------------------------------------------------------------------
-        |
-        | Nếu hôm nay >= check-out
-        | thì không check-in theo flow bình thường nữa.
-        |
         */
         if (
             $today->gte(
@@ -427,14 +401,14 @@ class FrontDeskController extends Controller
 
             return back()->with(
                 'error',
-                'This reservation has already reached or passed its check-out date.'
+                'This reservation has already reached or passed its planned check-out date.'
             );
         }
 
 
         /*
         |--------------------------------------------------------------------------
-        | Database Transaction
+        | Transaction
         |--------------------------------------------------------------------------
         */
         try {
@@ -450,10 +424,6 @@ class FrontDeskController extends Controller
                     |--------------------------------------------------------------------------
                     | Lock Physical Room
                     |--------------------------------------------------------------------------
-                    |
-                    | Ngăn hai thao tác Front Desk
-                    | cùng check-in vào một phòng.
-                    |
                     */
                     $room =
                         Room::whereKey(
@@ -465,7 +435,7 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Room Type Verification
+                    | Room Type
                     |--------------------------------------------------------------------------
                     */
                     if (
@@ -482,7 +452,7 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Room Operational Status
+                    | Operational Status
                     |--------------------------------------------------------------------------
                     */
                     if (
@@ -504,7 +474,47 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Already Occupied
+                    | Another Checked-In Guest?
+                    |--------------------------------------------------------------------------
+                    |
+                    | Kiểm tra thêm từ ReservationRoom,
+                    | không chỉ tin vào rooms.status.
+                    |
+                    */
+                    $occupiedByAnother =
+                        ReservationRoom::where(
+                            'room_id',
+                            $room->id
+                        )
+                            ->where(
+                                'id',
+                                '!=',
+                                $reservationRoom->id
+                            )
+                            ->whereHas(
+                                'reservation',
+                                function ($query) {
+
+                                    $query->where(
+                                        'status',
+                                        'checked_in'
+                                    );
+                                }
+                            )
+                            ->exists();
+
+
+                    if ($occupiedByAnother) {
+
+                        throw new \RuntimeException(
+                            "Room {$room->room_number} currently has another checked-in guest."
+                        );
+                    }
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Occupied Status
                     |--------------------------------------------------------------------------
                     */
                     if (
@@ -521,15 +531,10 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Housekeeping Check
+                    | Housekeeping
                     |--------------------------------------------------------------------------
                     |
-                    | Chỉ:
-                    |
-                    | clean
-                    | inspected
-                    |
-                    | mới được check-in.
+                    | Chỉ Clean / Inspected mới nhận khách.
                     |
                     */
                     if (
@@ -556,7 +561,7 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Update Reservation
+                    | Reservation → Checked In
                     |--------------------------------------------------------------------------
                     */
                     $reservation->update([
@@ -575,13 +580,8 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Update Physical Room
+                    | Room → Occupied
                     |--------------------------------------------------------------------------
-                    |
-                    | available
-                    |     ↓
-                    | occupied
-                    |
                     */
                     $room->update([
                         'status' =>
@@ -590,17 +590,8 @@ class FrontDeskController extends Controller
                 }
             );
 
-
         } catch (Throwable $exception) {
 
-            /*
-            |--------------------------------------------------------------------------
-            | Friendly Error
-            |--------------------------------------------------------------------------
-            |
-            | Không văng Laravel 500.
-            |
-            */
             return back()->with(
                 'error',
                 $exception->getMessage()
@@ -608,11 +599,6 @@ class FrontDeskController extends Controller
         }
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Success
-        |--------------------------------------------------------------------------
-        */
         return redirect()
             ->route(
                 'pms.front-desk.index'
@@ -669,6 +655,93 @@ class FrontDeskController extends Controller
                 'error',
                 'Only an in-house reservation can be checked out.'
             );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Refresh Reservation
+        |--------------------------------------------------------------------------
+        |
+        | Lấy total_amount / paid_amount mới nhất.
+        |
+        */
+        $reservation->refresh();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Total
+        |--------------------------------------------------------------------------
+        */
+        $totalAmount =
+            (float) $reservation
+                ->total_amount;
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Net Paid
+        |--------------------------------------------------------------------------
+        |
+        | paid_amount hiện được dùng là:
+        |
+        | Gross Payments
+        | -
+        | Completed Refunds
+        |
+        */
+        $netPaid =
+            (float) $reservation
+                ->paid_amount;
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Outstanding Balance
+        |--------------------------------------------------------------------------
+        */
+        $balance =
+            max(
+                0,
+                $totalAmount
+                -
+                $netPaid
+            );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | CHECKOUT PAYMENT VALIDATION
+        |--------------------------------------------------------------------------
+        |
+        | Phase 1:
+        |
+        | Không cho checkout nếu còn công nợ.
+        |
+        */
+        if (
+            $balance
+            >
+            0
+        ) {
+
+            return redirect()
+                ->route(
+                    'pms.reservations.show',
+                    $reservation
+                )
+                ->with(
+                    'error',
+                    'Cannot check out yet. Outstanding balance: '
+                    . number_format(
+                        $balance,
+                        0,
+                        ',',
+                        '.'
+                    )
+                    . ' ₫. Please complete payment before check-out.'
+                );
         }
 
 
@@ -731,7 +804,66 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Lock Physical Room
+                    | Lock Reservation
+                    |--------------------------------------------------------------------------
+                    */
+                    $lockedReservation =
+                        Reservation::whereKey(
+                            $reservation->id
+                        )
+                            ->lockForUpdate()
+                            ->firstOrFail();
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Re-check Balance Inside Transaction
+                    |--------------------------------------------------------------------------
+                    |
+                    | Tránh payment/folio thay đổi ngay lúc checkout.
+                    |
+                    */
+                    $total =
+                        (float) $lockedReservation
+                            ->total_amount;
+
+
+                    $paid =
+                        (float) $lockedReservation
+                            ->paid_amount;
+
+
+                    $currentBalance =
+                        max(
+                            0,
+                            $total
+                            -
+                            $paid
+                        );
+
+
+                    if (
+                        $currentBalance
+                        >
+                        0
+                    ) {
+
+                        throw new \RuntimeException(
+                            'Outstanding balance is '
+                            . number_format(
+                                $currentBalance,
+                                0,
+                                ',',
+                                '.'
+                            )
+                            . ' ₫. Complete payment before check-out.'
+                        );
+                    }
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Lock Room
                     |--------------------------------------------------------------------------
                     */
                     $room =
@@ -744,10 +876,10 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Reservation Check Out
+                    | Reservation → Checked Out
                     |--------------------------------------------------------------------------
                     */
-                    $reservation->update([
+                    $lockedReservation->update([
                         'status' =>
                             'checked_out',
 
@@ -760,20 +892,12 @@ class FrontDeskController extends Controller
 
                     /*
                     |--------------------------------------------------------------------------
-                    | Physical Room
+                    | Room
                     |--------------------------------------------------------------------------
                     |
-                    | Khách rời phòng:
+                    | occupied → available
                     |
-                    | occupied
-                    |     ↓
-                    | available
-                    |
-                    | Nhưng Housekeeping:
-                    |
-                    | clean/inspected
-                    |     ↓
-                    | dirty
+                    | housekeeping → dirty
                     |
                     */
                     $room->update([
@@ -783,9 +907,23 @@ class FrontDeskController extends Controller
                         'housekeeping_status' =>
                             'dirty',
                     ]);
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | IMPORTANT
+                    |--------------------------------------------------------------------------
+                    |
+                    | Không thay đổi:
+                    |
+                    | Inventory
+                    | Channex Availability
+                    |
+                    | vì reservation đã giữ Inventory từ lúc booking.
+                    |
+                    */
                 }
             );
-
 
         } catch (Throwable $exception) {
 
@@ -796,11 +934,6 @@ class FrontDeskController extends Controller
         }
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Success
-        |--------------------------------------------------------------------------
-        */
         return redirect()
             ->route(
                 'pms.front-desk.index'

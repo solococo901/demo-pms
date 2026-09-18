@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Pms\DashboardController;
 use App\Http\Controllers\Pms\RoomTypeController;
 use App\Http\Controllers\Pms\RoomController;
+use App\Http\Controllers\Pms\RoomMoveController;
 use App\Http\Controllers\Pms\GuestController;
 use App\Http\Controllers\Pms\ReservationController;
 use App\Http\Controllers\Pms\RatePlanController;
@@ -15,7 +16,7 @@ use App\Http\Controllers\Pms\FrontDeskController;
 use App\Http\Controllers\Pms\HousekeepingController;
 use App\Http\Controllers\Pms\PaymentController;
 use App\Http\Controllers\Pms\FolioController;
-
+use App\Http\Controllers\Pms\NoShowController;
 
 
 /*
@@ -185,6 +186,23 @@ Route::prefix('pms')
                 'housekeeping.update-status'
             );
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | No-show
+        |--------------------------------------------------------------------------
+        */
+
+        Route::post(
+            '/reservations/{reservation}/no-show',
+            [
+                NoShowController::class,
+                'store',
+            ]
+        )->name(
+            'reservations.no-show'
+        );
+
         /*
         |--------------------------------------------------------------------------
         | Reservations
@@ -269,6 +287,35 @@ Route::prefix('pms')
             ]
         )->name(
                 'refunds.void'
+            );
+
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Room Move
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get(
+            '/reservations/{reservation}/room-move',
+            [
+                RoomMoveController::class,
+                'create',
+            ]
+        )->name(
+                'room-moves.create'
+            );
+
+
+        Route::post(
+            '/reservations/{reservation}/room-move',
+            [
+                RoomMoveController::class,
+                'store',
+            ]
+        )->name(
+                'room-moves.store'
             );
 
         /*
@@ -403,8 +450,8 @@ Route::prefix('pms')
                 'store',
             ]
         )->name(
-            'folio-items.store'
-        );
+                'folio-items.store'
+            );
 
 
         Route::patch(
@@ -414,8 +461,8 @@ Route::prefix('pms')
                 'void',
             ]
         )->name(
-            'folio-items.void'
-        );
+                'folio-items.void'
+            );
 
 
         /*

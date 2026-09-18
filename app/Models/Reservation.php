@@ -28,6 +28,8 @@ class Reservation extends Model
         'notes',
         'booked_at',
         'cancelled_at',
+        'no_show_at',
+        'no_show_reason',
     ];
 
     protected $casts = [
@@ -40,6 +42,7 @@ class Reservation extends Model
         'checked_out_at' => 'datetime',
         'booked_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'no_show_at' => 'datetime',
     ];
 
 
@@ -101,6 +104,13 @@ class Reservation extends Model
     {
         return $this->hasMany(
             FolioItem::class
+        );
+    }
+
+    public function roomMoves()
+    {
+        return $this->hasMany(
+            RoomMove::class
         );
     }
 }

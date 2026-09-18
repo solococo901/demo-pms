@@ -265,8 +265,8 @@ class ReservationController extends Controller
 
         if (
             !empty(
-                $validated['rate_plan_id']
-            )
+            $validated['rate_plan_id']
+        )
         ) {
 
             $ratePlan = RatePlan::where(
@@ -332,12 +332,12 @@ class ReservationController extends Controller
             isset($validated['nightly_rate'])
             &&
             $validated['nightly_rate'] !== null
-                ? (float) $validated['nightly_rate']
-                : (
-                    $ratePlan
-                        ? (float) $ratePlan->base_rate
-                        : (float) $roomType->base_price
-                );
+            ? (float) $validated['nightly_rate']
+            : (
+                $ratePlan
+                ? (float) $ratePlan->base_rate
+                : (float) $roomType->base_price
+            );
 
 
         /*
@@ -383,19 +383,7 @@ class ReservationController extends Controller
         |--------------------------------------------------------------------------
         */
         $result = DB::transaction(
-            function () use (
-                $property,
-                $validated,
-                $roomType,
-                $ratePlan,
-                $nightlyRate,
-                $roomTotal,
-                $subtotal,
-                $taxAmount,
-                $feeAmount,
-                $totalAmount,
-                $inventoryService
-            ) {
+            function () use ($property, $validated, $roomType, $ratePlan, $nightlyRate, $roomTotal, $subtotal, $taxAmount, $feeAmount, $totalAmount, $inventoryService) {
 
                 /*
                 |--------------------------------------------------------------------------
@@ -466,8 +454,8 @@ class ReservationController extends Controller
                             $validated['status']
                             ===
                             'cancelled'
-                                ? now()
-                                : null,
+                            ? now()
+                            : null,
                     ]);
 
 
@@ -680,6 +668,23 @@ class ReservationController extends Controller
                     ->orderByDesc('refunded_at')
                     ->orderByDesc('id');
             },
+
+            'folioItems' => function ($query) {
+                $query
+                    ->orderByDesc('posted_at')
+                    ->orderByDesc('id');
+            },
+
+            'roomMoves' => function ($query) {
+
+                $query
+                    ->with([
+                        'fromRoom',
+                        'toRoom',
+                    ])
+                    ->orderByDesc('moved_at')
+                    ->orderByDesc('id');
+            },
         ]);
 
 
@@ -742,9 +747,7 @@ class ReservationController extends Controller
             $availableRooms =
                 $rooms
                     ->filter(
-                        function ($room) use (
-                            $reservationRoom
-                        ) {
+                        function ($room) use ($reservationRoom) {
 
                             $hasConflict =
                                 ReservationRoom::where(
@@ -1299,8 +1302,8 @@ class ReservationController extends Controller
             ->with(
                 'success',
                 $oldRoom
-                    ? "Room {$oldRoom->room_number} unassigned successfully."
-                    : 'Room unassigned successfully.'
+                ? "Room {$oldRoom->room_number} unassigned successfully."
+                : 'Room unassigned successfully.'
             );
     }
 
@@ -1431,8 +1434,8 @@ class ReservationController extends Controller
 
         $oldRoomType =
             $reservationRoom
-                ? $reservationRoom->roomType
-                : null;
+            ? $reservationRoom->roomType
+            : null;
 
 
         $oldCheckIn =
@@ -1477,8 +1480,8 @@ class ReservationController extends Controller
 
         if (
             !empty(
-                $validated['rate_plan_id']
-            )
+            $validated['rate_plan_id']
+        )
         ) {
 
             $ratePlan = RatePlan::where(
@@ -1548,12 +1551,12 @@ class ReservationController extends Controller
             isset($validated['nightly_rate'])
             &&
             $validated['nightly_rate'] !== null
-                ? (float) $validated['nightly_rate']
-                : (
-                    $ratePlan
-                        ? (float) $ratePlan->base_rate
-                        : (float) $roomType->base_price
-                );
+            ? (float) $validated['nightly_rate']
+            : (
+                $ratePlan
+                ? (float) $ratePlan->base_rate
+                : (float) $roomType->base_price
+            );
 
 
         /*
@@ -1585,12 +1588,32 @@ class ReservationController extends Controller
             $roomTotal;
 
 
+        /*
+        |--------------------------------------------------------------------------
+        | Existing Active Folio Charges
+        |--------------------------------------------------------------------------
+        | Khi sửa Reservation, giữ lại các chi phí phát sinh đang active.
+        */
+        $extraCharges =
+            (float) $reservation
+                ->folioItems()
+                ->where(
+                    'status',
+                    'active'
+                )
+                ->sum(
+                    'total_amount'
+                );
+
+
         $totalAmount =
             $subtotal
             +
             $taxAmount
             +
-            $feeAmount;
+            $feeAmount
+            +
+            $extraCharges;
 
 
         /*
@@ -1644,27 +1667,7 @@ class ReservationController extends Controller
         |--------------------------------------------------------------------------
         */
         $inventoryIds = DB::transaction(
-            function () use (
-                $reservation,
-                $reservationRoom,
-                $property,
-                $validated,
-                $roomType,
-                $ratePlan,
-                $nightlyRate,
-                $roomTotal,
-                $subtotal,
-                $taxAmount,
-                $feeAmount,
-                $totalAmount,
-                $inventoryService,
-                $oldHoldsInventory,
-                $newHoldsInventory,
-                $stayChanged,
-                $oldRoomType,
-                $oldCheckIn,
-                $oldCheckOut
-            ) {
+            function () use ($reservation, $reservationRoom, $property, $validated, $roomType, $ratePlan, $nightlyRate, $roomTotal, $subtotal, $taxAmount, $feeAmount, $totalAmount, $inventoryService, $oldHoldsInventory, $newHoldsInventory, $stayChanged, $oldRoomType, $oldCheckIn, $oldCheckOut) {
 
                 $inventoryIds = [];
 
@@ -1788,12 +1791,12 @@ class ReservationController extends Controller
                         $validated['status']
                         ===
                         'cancelled'
-                            ? (
-                                $reservation->cancelled_at
-                                ??
-                                now()
-                            )
-                            : null,
+                        ? (
+                            $reservation->cancelled_at
+                            ??
+                            now()
+                        )
+                        : null,
                 ]);
 
 
@@ -1864,8 +1867,7 @@ class ReservationController extends Controller
                 |--------------------------------------------------------------------------
                 | Missing Reservation Room
                 |--------------------------------------------------------------------------
-                */
-                else {
+                */ else {
 
                     ReservationRoom::create([
                         'reservation_id' =>
@@ -2080,13 +2082,7 @@ class ReservationController extends Controller
         */
         $inventoryIds =
             DB::transaction(
-                function () use (
-                    $reservation,
-                    $reservationRoom,
-                    $property,
-                    $inventoryService,
-                    $shouldRelease
-                ) {
+                function () use ($reservation, $reservationRoom, $property, $inventoryService, $shouldRelease) {
 
                     $inventoryIds = [];
 
